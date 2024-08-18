@@ -229,7 +229,7 @@ def select_source_path() -> None:
 
     PREVIEW.withdraw()
     source_path = ctk.filedialog.askopenfilename(
-        title="select an source image",
+        title="Select a source image",
         initialdir=RECENT_DIRECTORY_SOURCE,
         filetypes=[img_ft],
     )
@@ -238,9 +238,11 @@ def select_source_path() -> None:
         RECENT_DIRECTORY_SOURCE = os.path.dirname(modules.globals.source_path)
         image = render_image_preview(modules.globals.source_path, (200, 200))
         source_label.configure(image=image)
+        source_label.image = image  # Keep a reference to prevent garbage collection
     else:
         modules.globals.source_path = None
         source_label.configure(image=None)
+        source_label.image = None  # Clear the reference if no image
 
 
 def select_target_path() -> None:
@@ -296,9 +298,30 @@ def select_output_path(start: Callable[[], None]) -> None:
 
 def render_image_preview(image_path: str, size: Tuple[int, int]) -> ctk.CTkImage:
     image = Image.open(image_path)
-    if size:
-        image = ImageOps.fit(image, size, Image.LANCZOS)
-    return ctk.CTkImage(image, size=image.size)
+
+    # Calculate the aspect ratio of the image and the target size
+    image_aspect = image.width / image.height
+    size_aspect = size[0] / size[1]
+
+    # Determine the new size of the image while preserving aspect ratio
+    if image_aspect > size_aspect:
+        # Image is wider relative to height
+        new_width = size[0]
+        new_height = int(size[0] / image_aspect)
+    else:
+        # Image is taller relative to width
+        new_height = size[1]
+        new_width = int(size[1] * image_aspect)
+
+    image = image.resize((new_width, new_height), Image.LANCZOS)
+
+    # Create a new image with the target size and paste the resized image onto it
+    new_image = Image.new("RGB", size, (255, 255, 255))  # White background
+    paste_x = (size[0] - new_width) // 2
+    paste_y = (size[1] - new_height) // 2
+    new_image.paste(image, (paste_x, paste_y))
+
+    return ctk.CTkImage(new_image, size=size)
 
 
 def render_video_preview(
@@ -421,7 +444,7 @@ def webcam_preview():
     source_image = None
 
     ttf_path = os.path.join("fonts", "Inter", "Inter-VariableFont_opsz,wght.ttf")
-    font_size = 24
+    font_size = 28
     text_color = (255, 255, 255)  # White text
     text_position = (10, 10)
     font = ImageFont.truetype(ttf_path, font_size)
