@@ -5,6 +5,11 @@ from typing import Callable, Tuple
 import cv2
 from PIL import Image, ImageOps
 
+import objc
+from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
+import tkinter as tk
+from tkinter import ttk
+
 import modules.globals
 import modules.metadata
 from modules.face_analyser import get_one_face
@@ -249,51 +254,94 @@ def update_preview(frame_number: int = 0) -> None:
         image = ctk.CTkImage(image, size=image.size)
         preview_label.configure(image=image)
 
+
+# Function to list available cameras with their names
+def list_available_cameras():
+    devices = AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo)
+    available_cameras = []
+    for index, device in enumerate(devices):
+        available_cameras.append((f"{index}: {device.localizedName()}", index))
+    return available_cameras
+
+# Function to switch and display selected camera
 def webcam_preview():
     if modules.globals.source_path is None:
         # No image selected
         return
 
-    global preview_label, PREVIEW
+    global preview_label, PREVIEW, ROOT
 
-    cap = cv2.VideoCapture(0)  # Use index for the webcam (adjust the index accordingly if necessary)    
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)  # Set the width of the resolution
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 540)  # Set the height of the resolution
-    cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
-    PREVIEW_MAX_WIDTH = 960
-    PREVIEW_MAX_HEIGHT = 540
+    # List available cameras and select one
+    available_cameras = list_available_cameras()
 
-    preview_label.configure(image=None)  # Reset the preview image before startup
+    # Check if cameras are available
+    if not available_cameras:
+        print("No cameras found.")
+        return
 
-    PREVIEW.deiconify()  # Open preview window
+    # Dropdown for selecting the camera
+    selected_camera = tk.StringVar()
+    camera_selection_window = tk.Toplevel(ROOT)
+    camera_selection_window.title("Select Camera")
+    label = tk.Label(camera_selection_window, text="Select a camera:")
+    label.pack()
 
-    frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
+    camera_names = [name for name, index in available_cameras]
+    camera_combo = ttk.Combobox(camera_selection_window, values=camera_names, state="readonly", textvariable=selected_camera)
+    camera_combo.pack()
 
-    source_image = None  # Initialize variable for the selected face image
+    def on_camera_selected(event=None):
+        camera_selection_window.destroy()
+        selected_name = selected_camera.get()
+        cam_index = int(selected_name.split(":")[0])  # Get the index directly from the selection
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        # Attempt to open the selected camera
+        cap = cv2.VideoCapture(cam_index)  # Use the selected camera index
+        if not cap.isOpened():
+            print(f"Failed to open camera with index {cam_index}")
+            return
 
-        # Select and save face image only once
-        if source_image is None and modules.globals.source_path:
-            source_image = get_one_face(cv2.imread(modules.globals.source_path))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)  # Set the width of the resolution
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 540)  # Set the height of the resolution
+        cap.set(cv2.CAP_PROP_FPS, 60)  # Set the frame rate of the webcam
+        PREVIEW_MAX_WIDTH = 960
+        PREVIEW_MAX_HEIGHT = 540
 
-        temp_frame = frame.copy()  #Create a copy of the frame
+        preview_label.configure(image=None)  # Reset the preview image before startup
+        PREVIEW.deiconify()  # Open preview window
 
-        for frame_processor in frame_processors:
-            temp_frame = frame_processor.process_frame(source_image, temp_frame)
+        frame_processors = get_frame_processors_modules(modules.globals.frame_processors)
 
-        image = cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)  # Convert the image to RGB format to display it with Tkinter
-        image = Image.fromarray(image)
-        image = ImageOps.contain(image, (PREVIEW_MAX_WIDTH, PREVIEW_MAX_HEIGHT), Image.LANCZOS)
-        image = ctk.CTkImage(image, size=image.size)
-        preview_label.configure(image=image)
-        ROOT.update()
+        source_image = None  # Initialize variable for the selected face image
 
-        if PREVIEW.state() == 'withdrawn':
-            break
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-    cap.release()
-    PREVIEW.withdraw()  # Close preview window when loop is finished
+            # Select and save face image only once
+            if source_image is None and modules.globals.source_path:
+                source_image = get_one_face(cv2.imread(modules.globals.source_path))
+
+            temp_frame = frame.copy()  # Create a copy of the frame
+
+            for frame_processor in frame_processors:
+                temp_frame = frame_processor.process_frame(source_image, temp_frame)
+
+            image = cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)  # Convert the image to RGB format to display it with Tkinter
+            image = Image.fromarray(image)
+            image = ImageOps.contain(image, (PREVIEW_MAX_WIDTH, PREVIEW_MAX_HEIGHT), Image.LANCZOS)
+            image = ctk.CTkImage(image, size=image.size)
+            preview_label.configure(image=image)
+            ROOT.update()
+
+            if PREVIEW.state() == 'withdrawn':
+                break
+
+        cap.release()
+        PREVIEW.withdraw()  # Close preview window when loop is finished
+
+    camera_combo.bind("<<ComboboxSelected>>", on_camera_selected)
+
+    # Start the camera selection window
+    ROOT.wait_window(camera_selection_window)
