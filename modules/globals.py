@@ -26,5 +26,5 @@ headless = None
 log_level = 'error'
 fp_ui: Dict[str, bool] = {}
 nsfw = None
-camera_input_combobox = None
+selected_camera_index: int = 0
 webcam_preview_running = False
